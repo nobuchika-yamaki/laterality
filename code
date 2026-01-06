@@ -1,0 +1,146 @@
+# ============================================================
+# Minimal dynamical model of hemispheric asymmetry
+# Full analysis code for Methods / Results / Figures 2 & 3
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ----------------------------
+# Global parameters
+# ----------------------------
+alpha = 0.5
+beta = 0.3
+dt = 1e-3
+T = 10.0
+steps = int(T / dt)
+eps_num = 1e-12
+np.random.seed(0)
+
+# ----------------------------
+# Core functions
+# ----------------------------
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+def f(x):
+    return x * (1.0 - x)
+
+def simulate(eps=0.001, sigma2=0.0, return_full=False):
+    """
+    Single simulation of the latent-variable system.
+    """
+    # initial conditions (near symmetric)
+    L0, R0 = 0.51, 0.49
+    u = np.log(L0 / (1 - L0))
+    v = np.log(R0 / (1 - R0))
+
+    L_hist = np.zeros(steps)
+    R_hist = np.zeros(steps)
+    D_hist = np.zeros(steps)
+
+    for t in range(steps):
+        L = sigmoid(u)
+        R = sigmoid(v)
+
+        du = (alpha * (1 - eps) * f(L) - beta * R) / (L * (1 - L) + eps_num)
+        dv = (alpha * (1 + eps) * f(R) - beta * L) / (R * (1 - R) + eps_num)
+
+        if sigma2 > 0:
+            du += np.random.normal(0, np.sqrt(sigma2 * dt)) / (L * (1 - L) + eps_num)
+            dv += np.random.normal(0, np.sqrt(sigma2 * dt)) / (R * (1 - R) + eps_num)
+
+        u += du * dt
+        v += dv * dt
+
+        L_hist[t] = L
+        R_hist[t] = R
+        D_hist[t] = (L - R) / max(L, R)
+
+    if return_full:
+        return L_hist, R_hist, D_hist
+    else:
+        tail = slice(int(0.8 * steps), steps)
+        return np.mean(D_hist[tail]), np.std(D_hist[tail])
+
+# ----------------------------
+# Batch statistics (Results)
+# ----------------------------
+
+def batch_stats(eps, sigma2=0.0, N=100):
+    Ds = []
+    signs = []
+    for _ in range(N):
+        L, R, D = simulate(eps=eps, sigma2=sigma2, return_full=True)
+        tail = slice(int(0.8 * steps), steps)
+        Ds.append(np.mean(D[tail]))
+        signs.append(np.sign(np.mean(D[tail])))
+    return np.mean(Ds), np.std(Ds), np.mean(np.array(signs) > 0)
+
+# ----------------------------
+# Figure 2: Time courses
+# ----------------------------
+
+def plot_figure2():
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8), sharex=True)
+
+    for row, eps in enumerate([0.001, 0.0]):
+        L, R, D = simulate(eps=eps, return_full=True)
+        t = np.linspace(0, T, steps)
+
+        axes[row, 0].plot(t, L, label="L(t)")
+        axes[row, 0].plot(t, R, label="R(t)")
+        axes[row, 0].set_ylabel("Maturation propensity")
+        axes[row, 0].set_title(f"ε = {eps}")
+        axes[row, 0].legend()
+
+        axes[row, 1].plot(t, D)
+        axes[row, 1].set_ylabel("D(t)")
+        axes[row, 1].set_title("Dominance index")
+
+    axes[1, 0].set_xlabel("t")
+    axes[1, 1].set_xlabel("t")
+    fig.suptitle("Figure 2: Emergence of hemispheric asymmetry")
+    plt.tight_layout()
+    plt.show()
+
+# ----------------------------
+# Figure 3: Stability of symmetric equilibrium
+# ----------------------------
+
+def plot_figure3():
+    betas = np.linspace(0.1, 0.5, 200)
+    growth = -alpha + 3 * betas  # antisymmetric eigenvalue
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(betas, growth, linewidth=2)
+    plt.axhline(0, linestyle="--")
+    plt.axvline(alpha / 3, linestyle="--")
+    plt.text(alpha / 3 + 0.01, 0.02, r"$\beta_c = \alpha/3$")
+
+    plt.xlabel("Interhemispheric coupling β")
+    plt.ylabel("Growth rate λ_asym")
+    plt.title("Figure 3: Stability of the symmetric internal equilibrium")
+    plt.tight_layout()
+    plt.show()
+
+# ----------------------------
+# Run all analyses
+# ----------------------------
+
+if __name__ == "__main__":
+
+    print("Critical coupling beta_c =", alpha / 3)
+
+    for eps in [0.001, 0.0, -0.001]:
+        meanD, sdD, prob = batch_stats(eps)
+        print(f"eps={eps:+.4f}: D = {meanD:.3f} ± {sdD:.3f}, P(D>0)={prob:.2f}")
+
+    print("\nNoise robustness:")
+    for s2 in [1e-5, 5e-4, 1e-3]:
+        meanD, sdD, prob = batch_stats(0.001, sigma2=s2)
+        print(f"sigma2={s2:.1e}: D = {meanD:.3f} ± {sdD:.3f}, P(D>0)={prob:.2f}")
+
+    plot_figure2()
+    plot_figure3()
